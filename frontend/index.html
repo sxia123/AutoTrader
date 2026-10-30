@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoTrader — Options Execution Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- TOP UTILITY BAR (40px fixed height) -->
+  <header id="top-bar" class="top-bar">
+    <div class="top-left">
+      <span class="wordmark">AutoTrader</span>
+      <span class="v-sep"></span>
+      <div class="status-cluster">
+        <span class="status-item" title="Local Windows Toast Notification Watcher">
+          <span id="dot-discord" class="status-dot dot-green"></span>
+          <span class="status-label">Discord Listener:</span>
+          <span id="lbl-discord" class="status-val mono">Active</span>
+        </span>
+        <span class="status-item" title="Options NBBO Quote Stream">
+          <span id="dot-quote" class="status-dot dot-green"></span>
+          <span class="status-label">Quote Feed:</span>
+          <span id="lbl-quote" class="status-val mono">Sim NBBO</span>
+        </span>
+        <button id="btn-open-config-latency" class="status-item status-btn" type="button" title="Configure Gemini / Codex / Broker Connections">
+          <span id="dot-parser" class="status-dot dot-green"></span>
+          <span class="status-label">Parse Latency:</span>
+          <span id="lbl-latency" class="status-val mono">18ms</span>
+          <span id="lbl-parser-tag" class="parser-tag mono">LOCAL</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="top-center">
+      <div class="mode-segmented" role="tablist" aria-label="Execution Mode">
+        <button id="mode-copilot" class="mode-btn active" data-mode="COPILOT" type="button">
+          Co-Pilot &middot; RH
+        </button>
+        <button id="mode-paper" class="mode-btn" data-mode="PAPER_AUTO" type="button">
+          Paper Auto
+        </button>
+        <button id="mode-live" class="mode-btn" data-mode="LIVE_AUTO" type="button">
+          Live Auto
+        </button>
+      </div>
+
+      <!-- Explicit Live Auto Confirmation Popover -->
+      <div id="live-confirm-popover" class="popover hidden" role="dialog" aria-modal="true">
+        <div class="popover-title">Arm Live Broker Execution</div>
+        <p class="popover-body">
+          New actionable Discord signals passing slippage and daily risk checks will submit real-money limit orders to the configured Live API account. Existing Paper or Robinhood Manual positions remain isolated to their origin venue.
+        </p>
+        <div id="live-key-warning" class="popover-note mono"></div>
+        <div class="popover-actions">
+          <button id="btn-cancel-live" class="btn btn-neutral" type="button">Cancel <kbd>Esc</kbd></button>
+          <button id="btn-confirm-live" class="btn btn-danger" type="button">Arm Live Auto</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="top-right">
+      <div class="metric-inline" title="Committed capital across open positions and working buy orders vs daily cap">
+        <span class="micro-label">DAILY RISK</span>
+        <span id="lbl-daily-risk" class="mono">$0 / $500</span>
+      </div>
+      <span class="v-sep"></span>
+      <label class="metric-inline" for="input-max-slip" title="Maximum allowed ask slippage above caller alert price">
+        <span class="micro-label">MAX SLIP</span>
+        <span class="slip-input-wrap mono">
+          <input id="input-max-slip" class="inline-num-input mono" type="number" min="0.5" max="50" step="0.5" value="5.0" />%
+        </span>
+      </label>
+      <span class="v-sep"></span>
+      <button id="btn-pause-entries" class="btn btn-toggle" type="button" title="Halt new BTO entries while continuing to process TRIM and STC exits">
+        Pause Entries
+      </button>
+      <button id="btn-open-settings" class="btn btn-neutral" type="button">
+        Connections
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN SPLIT WORKBENCH (calc(100vh - 40px)) -->
+  <main class="workbench">
+    <!-- LEFT PANE (38% width) — LIVE SIGNAL TAPE -->
+    <section class="pane pane-left">
+      <div class="pane-header">
+        <div class="pane-header-left">
+          <span class="pane-title">LIVE SIGNAL TAPE</span>
+          <span id="lbl-channel-filter" class="channel-tag mono">#options-alerts</span>
+        </div>
+        <div class="preset-bar">
+          <span class="micro-label">SIM:</span>
+          <button class="preset-btn" data-preset="bto" type="button">+ BTO</button>
+          <button class="preset-btn" data-preset="chase" type="button">+ Chaser</button>
+          <button class="preset-btn" data-preset="trim" type="button">+ Trim 50%</button>
+          <button class="preset-btn" data-preset="stop" type="button">+ Stop BE</button>
+          <button class="preset-btn" data-preset="chatter" type="button">+ Chatter</button>
+          <button id="btn-clear-tape" class="preset-btn" type="button" title="Clear all signals, orders, and positions">Clear</button>
+        </div>
+      </div>
+
+      <div id="signal-tape" class="signal-tape"></div>
+
+      <form id="signal-inject-form" class="tape-input-bar" autocomplete="off">
+        <input
+          id="input-caller"
+          class="caller-input mono"
+          type="text"
+          value="dk_flow"
+          aria-label="Caller handle"
+          title="Caller handle"
+        />
+        <input
+          id="input-raw-signal"
+          class="signal-input"
+          type="text"
+          placeholder="Paste or simulate Discord message (e.g. BTO AAPL 11/06 230C @ 1.65)..."
+          aria-label="Simulate Discord message"
+        />
+        <button class="btn btn-neutral" type="submit">Inject <kbd>Enter</kbd></button>
+      </form>
+    </section>
+
+    <!-- RIGHT COLUMN (62% width, split upper 50% / lower 50%) -->
+    <div class="pane-right-col">
+      <!-- TOP-RIGHT PANE — ACTIVE EXECUTION WORKSPACE -->
+      <section class="pane pane-top-right">
+        <div class="pane-header">
+          <div class="pane-header-left">
+            <span id="workspace-title" class="pane-title">ACTIVE EXECUTION WORKSPACE &middot; CO-PILOT TICKET</span>
+            <span id="workspace-badge" class="mode-pill pill-amber mono">CO-PILOT &middot; RH-MANUAL</span>
+          </div>
+          <div class="pane-header-right">
+            <div class="subview-tabs">
+              <button id="tab-auto-view" class="subtab-btn active" data-view="AUTO" type="button">Mode Default</button>
+              <button id="tab-blotter-view" class="subtab-btn" data-view="BLOTTER" type="button">
+                Orders Blotter (<span id="lbl-working-count" class="mono">0</span>)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cross-mode pending manual exit alert strip (if operator is in Auto mode but has pending RH-MANUAL exit) -->
+        <div id="cross-mode-banner" class="cross-mode-banner hidden">
+          <span id="cross-mode-text" class="mono"></span>
+          <button id="btn-switch-to-ticket" class="btn btn-amber-outline btn-xs" type="button">Open Co-Pilot Ticket</button>
+        </div>
+
+        <!-- VIEW A: CO-PILOT TRADE TICKET -->
+        <div id="copilot-workspace" class="workspace-body"></div>
+
+        <!-- VIEW B: WORKING & RECENT ORDERS BLOTTER -->
+        <div id="blotter-workspace" class="workspace-body hidden">
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>TIME</th>
+                  <th>SIDE</th>
+                  <th>CONTRACT</th>
+                  <th>VENUE</th>
+                  <th class="num">QTY</th>
+                  <th class="num">CALLER</th>
+                  <th class="num">LIMIT</th>
+                  <th class="num">LIVE / FILL</th>
+                  <th class="num">SLIP VS ALERT</th>
+                  <th>STATUS / TIMER</th>
+                  <th class="right">ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="orders-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOTTOM-RIGHT PANE — OPEN POSITIONS & STATE LEDGER -->
+      <section class="pane pane-bottom-right">
+        <div class="pane-header">
+          <div class="pane-header-left">
+            <span class="pane-title">OPEN POSITIONS &amp; STATE LEDGER</span>
+            <span id="lbl-open-count" class="count-tag mono">0 OPEN</span>
+          </div>
+          <div class="pane-header-right ledger-summary mono">
+            <span class="summary-pair">
+              <span class="micro-label">UNREALIZED P&amp;L</span>
+              <span id="lbl-unrealized-pnl">$0.00</span>
+            </span>
+            <span class="v-sep"></span>
+            <span class="summary-pair">
+              <span class="micro-label">REALIZED TODAY</span>
+              <span id="lbl-realized-pnl">$0.00</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="table-scroll">
+          <table class="data-table positions-table">
+            <thead>
+              <tr>
+                <th>CONTRACT</th>
+                <th>ORIGIN</th>
+                <th class="num">QTY</th>
+                <th class="num">AVG ENTRY</th>
+                <th class="num">BID / ASK</th>
+                <th>STOP / NOTE</th>
+                <th class="num">UNREALIZED P&amp;L</th>
+                <th class="right">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="positions-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- CONNECTIONS & PARSER SETTINGS MODAL (GEMINI / CODEX / ALPACA) -->
+  <div id="settings-backdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <span class="pane-title">PARSER ENGINE &amp; BROKER CONNECTIONS</span>
+        <button id="btn-close-settings" class="btn btn-neutral btn-xs" type="button">Close <kbd>Esc</kbd></button>
+      </div>
+
+      <form id="settings-form" class="modal-body" autocomplete="off">
+        <div class="form-section">
+          <div class="section-heading">SIGNAL PARSER PROVIDER (GEMINI / CODEX / LOCAL)</div>
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">Active Parser</span>
+              <select id="cfg-parser-provider" class="field-input mono">
+                <option value="LOCAL_FAST">LOCAL_FAST (Sub-2ms Deterministic)</option>
+                <option value="GEMINI_API">GEMINI_API (Google GenAI Structured JSON)</option>
+                <option value="OPENAI_API">OPENAI_API (OpenAI / Codex Structured JSON)</option>
+                <option value="CODEX_CLI">CODEX_CLI (Local `codex exec` Binary)</option>
+                <option value="GEMINI_CLI">GEMINI_CLI (Local `gemini -p` Binary)</option>
+              </select>
+            </label>
+            <div class="field field-end">
+              <button id="btn-test-parser" class="btn btn-neutral" type="button">Test Selected Parser</button>
+            </div>
+          </div>
+          <div id="parser-test-output" class="diag-output mono hidden"></div>
+
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">Gemini API Key (Google AI Studio)</span>
+              <input id="cfg-gemini-key" class="field-input mono" type="password" placeholder="AIza..." />
+            </label>
+            <label class="field">
+              <span class="field-label">Gemini Model</span>
+              <input id="cfg-gemini-model" class="field-input mono" type="text" value="gemini-2.5-flash" />
+            </label>
+          </div>
+
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">OpenAI / Codex API Key</span>
+              <input id="cfg-openai-key" class="field-input mono" type="password" placeholder="sk-..." />
+            </label>
+            <label class="field">
+              <span class="field-label">OpenAI Model</span>
+              <input id="cfg-openai-model" class="field-input mono" type="text" value="gpt-4.1-mini" />
+            </label>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="section-heading" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>BROKER API &amp; RISK GUARDRAILS</span>
+            <button id="btn-test-alpaca-paper" class="btn btn-neutral btn-xs" type="button">Test Alpaca Paper</button>
+          </div>
+          <div id="alpaca-test-output" class="diag-output mono hidden"></div>
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">Alpaca Paper API Key (Optional &mdash; Simulates if empty)</span>
+              <input id="cfg-alpaca-paper-key" class="field-input mono" type="password" placeholder="PK..." />
+            </label>
+            <label class="field">
+              <span class="field-label">Alpaca Paper Secret</span>
+              <input id="cfg-alpaca-paper-secret" class="field-input mono" type="password" placeholder="Paper secret..." />
+            </label>
+          </div>
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">Alpaca Live API Key</span>
+              <input id="cfg-alpaca-live-key" class="field-input mono" type="password" placeholder="AK..." />
+            </label>
+            <label class="field">
+              <span class="field-label">Alpaca Live Secret</span>
+              <input id="cfg-alpaca-live-secret" class="field-input mono" type="password" placeholder="Live secret..." />
+            </label>
+          </div>
+
+          <div class="form-grid-3">
+            <label class="field">
+              <span class="field-label">Daily Risk Cap ($)</span>
+              <input id="cfg-daily-cap" class="field-input mono" type="number" step="50" min="50" value="500" />
+            </label>
+            <label class="field">
+              <span class="field-label">Max Per-Trade Risk ($)</span>
+              <input id="cfg-trade-cap" class="field-input mono" type="number" step="25" min="50" value="250" />
+            </label>
+            <label class="field">
+              <span class="field-label">Auto-Cancel Unfilled (s)</span>
+              <input id="cfg-cancel-sec" class="field-input mono" type="number" step="1" min="5" max="120" value="15" />
+            </label>
+          </div>
+
+          <div class="form-grid-2">
+            <label class="field">
+              <span class="field-label">Discord Channel Toast Filter</span>
+              <input id="cfg-channel-filter" class="field-input mono" type="text" value="options-alerts" />
+            </label>
+            <div class="field field-end">
+              <button id="btn-reset-demo" class="btn btn-danger" type="button">Clear All Signals &amp; Positions</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <span class="footer-hint">API keys are stored locally in SQLite on this machine only.</span>
+          <button class="btn btn-filled" type="submit">Save Configuration</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-status" class="status-toast mono hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+

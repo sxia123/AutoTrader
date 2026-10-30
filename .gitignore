@@ -1,0 +1,21 @@
+# Secrets & local credentials
+.env
+.env.*
+!.env.example
+
+# Local SQLite state & cached credentials
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Python & OS artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+node_modules/
+Thumbs.db
+.DS_Store
